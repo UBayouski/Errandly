@@ -19,6 +19,7 @@
 
 # production
 /build
+/hackathon
 
 # misc
 .DS_Store
@@ -39,3 +40,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+data/
+
+# keep the template
+!.env.example
+
+# Claude Code instructions (local only)
+CLAUDE.md
