@@ -3,7 +3,7 @@ import { z } from "zod";
 import { channel3Enabled, searchProducts } from "./channel3";
 import { getModel, providerOptions } from "./model";
 import { chargeVault, paypalReadTools } from "./paypal";
-import { describePolicy, evaluate, spentInPeriod, categoryVerdict } from "./policy";
+import { describePolicy, evaluate, formatMoney, spentInPeriod, categoryVerdict } from "./policy";
 import { getMandate, getRun, listRuns, newId, now, saveMandate, saveRun, updateRun } from "./store";
 import type { Mandate, Policy, Proposal, Run, RunStep } from "./types";
 
@@ -133,7 +133,7 @@ async function executePurchase(runId: string, mandate: Mandate, proposal: Propos
     r.steps.push(
       step(
         "payment",
-        `Charged ${total.toFixed(2)} ${proposal.currency} via PayPal`,
+        `Charged ${formatMoney(total, proposal.currency)} via PayPal`,
         `Order ${result.orderId}${result.captureId ? `, capture ${result.captureId}` : ""}, status ${result.status}. Merchant-initiated charge against the vaulted wallet; no checkout screen.`,
         result,
       ),
@@ -193,10 +193,10 @@ async function executeRun(runId: string): Promise<void> {
             step(
               "search",
               `Searched "${query}"`,
-              `${results.length} results under ${cap.toFixed(2)} ${p.currency} from ${channel3Enabled() ? "Channel3" : "the demo catalog"}${
+              `${results.length} results under ${formatMoney(cap, p.currency)} from ${channel3Enabled() ? "Channel3" : "the demo catalog"}${
                 p.allowedMerchants.length ? ` (${p.allowedMerchants.join(", ")} only)` : ""
               }${raw.length > results.length ? `; ${raw.length - results.length} over budget dropped` : ""}${
-                results.length ? `. Top: ${results.slice(0, 3).map((r) => `${r.title.slice(0, 48)} (${r.bestOffer!.price.toFixed(2)})`).join("; ")}` : ""
+                results.length ? `. Top: ${results.slice(0, 3).map((r) => `${r.title.slice(0, 48)} (${formatMoney(r.bestOffer!.price, r.bestOffer!.currency || p.currency)})`).join("; ")}` : ""
               }`,
               results.slice(0, 6),
             ),
@@ -232,8 +232,8 @@ async function executeRun(runId: string): Promise<void> {
               decision.outcome === "deny"
                 ? `Policy refused ${proposal.title}`
                 : decision.outcome === "approval"
-                  ? `Policy requires approval for ${total.toFixed(2)} ${proposal.currency}`
-                  : `Policy auto-approved ${total.toFixed(2)} ${proposal.currency}`,
+                  ? `Policy requires approval for ${formatMoney(total, proposal.currency)}`
+                  : `Policy auto-approved ${formatMoney(total, proposal.currency)}`,
               decision.reasons.join(" "),
               decision,
             ),
@@ -310,10 +310,10 @@ async function executeRun(runId: string): Promise<void> {
 Mandate "${mandate.name}": ${mandate.description}
 Policy:
 ${describePolicy(p)}
-Spent so far this ${p.period}: ${spent.toFixed(2)} ${p.currency} across ${count} purchases. Remaining: ${remaining.toFixed(2)} ${p.currency}.
+Spent so far this ${p.period}: ${formatMoney(spent, p.currency)} across ${count} purchases. Remaining: ${formatMoney(remaining, p.currency)}.
 
 How to run an errand:
-1. Search with a specific query and maxPrice no higher than ${searchCap.toFixed(2)} ${p.currency}. Results are already limited to the merchants the policy allows${
+1. Search with a specific query and maxPrice no higher than ${formatMoney(searchCap, p.currency)}. Results are already limited to the merchants the policy allows${
     p.allowedMerchants.length ? ` (${p.allowedMerchants.join(", ")})` : ""
   } and to the price cap. You get at most ${MAX_SEARCHES} searches; use different wording if the first is poor, then decide.
 2. Pick the cheapest in-stock offer that genuinely matches the task; when several match, lowest total price wins. Do not over-buy; quantity 1 unless the task says otherwise.
@@ -348,7 +348,7 @@ Environment: PayPal ${process.env.PAYPAL_ENVIRONMENT?.toUpperCase() === "PRODUCT
     r.summary =
       text ||
       (r.payment
-        ? `Paid ${r.payment.amount.toFixed(2)} ${r.payment.currency} to ${r.proposal?.merchantDomain ?? "the merchant"} for ${r.proposal?.title ?? "the item"}. PayPal order ${r.payment.orderId}.`
+        ? `Paid ${formatMoney(r.payment.amount, r.payment.currency)} to ${r.proposal?.merchantDomain ?? "the merchant"} for ${r.proposal?.title ?? "the item"}. PayPal order ${r.payment.orderId}.`
         : r.decision?.outcome === "deny"
           ? `Refused by the policy: ${r.decision.reasons.join("; ")}. Nothing was charged.`
           : r.status === "awaiting_approval"
@@ -393,7 +393,7 @@ export async function decideRun(runId: string, approved: boolean, reason?: strin
     const updated = await executePurchase(runId, mandate, run.proposal);
     return updateRun(updated.id, (r) => {
       r.status = "completed";
-      r.summary = `Approved and paid: ${r.payment!.amount.toFixed(2)} ${r.payment!.currency} to ${r.proposal!.merchantDomain} for ${r.proposal!.title}. PayPal order ${r.payment!.orderId}.`;
+      r.summary = `Approved and paid: ${formatMoney(r.payment!.amount, r.payment!.currency)} to ${r.proposal!.merchantDomain} for ${r.proposal!.title}. PayPal order ${r.payment!.orderId}.`;
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

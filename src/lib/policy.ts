@@ -6,6 +6,15 @@ import type { Check, Decision, Mandate, Period, Proposal, Run } from "./types";
  * shows exactly why a purchase ran, paused, or was refused.
  */
 
+/** "$40.00", matching the UI; falls back to "40.00 XYZ" for an unknown currency code. */
+export function formatMoney(n: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
+}
+
 export function periodStart(period: Period, at = new Date()): Date {
   const d = new Date(at);
   d.setUTCHours(0, 0, 0, 0);
@@ -54,7 +63,7 @@ export function evaluate(mandate: Mandate, proposal: Proposal, runs: Run[], at =
   const checks: Check[] = [];
   const total = round(proposal.amount * proposal.quantity);
   const { spent, count } = spentInPeriod(mandate, runs, at);
-  const money = (n: number) => `${n.toFixed(2)} ${p.currency}`;
+  const money = (n: number) => formatMoney(n, p.currency);
 
   checks.push({
     name: "Mandate active",
@@ -156,7 +165,7 @@ export function evaluate(mandate: Mandate, proposal: Proposal, runs: Run[], at =
 }
 
 export function describePolicy(p: Mandate["policy"]): string {
-  const money = (n: number) => `${n.toFixed(2)} ${p.currency}`;
+  const money = (n: number) => formatMoney(n, p.currency);
   const lines = [
     `Per purchase: up to ${money(p.perTransactionMax)}.`,
     `Per ${p.period}: up to ${money(p.periodMax)} and at most ${p.maxPurchasesPerPeriod} purchases.`,
