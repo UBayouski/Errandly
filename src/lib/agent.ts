@@ -4,7 +4,7 @@ import { channel3Enabled, searchProducts } from "./channel3";
 import { getModel, providerOptions } from "./model";
 import { chargeVault, paypalReadTools } from "./paypal";
 import { describePolicy, evaluate, formatMoney, spentInPeriod, categoryVerdict } from "./policy";
-import { getMandate, getRun, listRuns, newId, now, saveMandate, saveRun, updateRun } from "./store";
+import { claimRun, getMandate, getRun, listRuns, newId, now, saveMandate, saveRun, updateRun } from "./store";
 import type { Mandate, Policy, Proposal, Run, RunStep } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -367,15 +367,18 @@ export async function decideRun(runId: string, approved: boolean, reason?: strin
   const mandate = await getMandate(run.mandateId);
   if (!mandate) throw new Error("Mandate not found");
 
+  // Claim the run inside the serialised store update. Two simultaneous decisions
+  // both pass the read above; only the first claim succeeds, the other throws and
+  // the route answers 409. Only the claimant goes on to charge the wallet.
   if (!approved) {
-    return updateRun(runId, (r) => {
+    return claimRun(runId, "awaiting_approval", (r) => {
       r.status = "denied";
       r.steps.push(step("approval", "Owner declined", reason || "No reason given"));
       r.summary = `Declined by the owner${reason ? `: ${reason}` : ""}. Nothing was charged.`;
     });
   }
 
-  await updateRun(runId, (r) => {
+  await claimRun(runId, "awaiting_approval", (r) => {
     r.status = "running";
     r.steps.push(step("approval", "Owner approved", reason || undefined));
   });

@@ -112,3 +112,19 @@ export function updateRun(id: string, patch: (r: Run) => void): Promise<Run> {
     return r;
   });
 }
+
+/**
+ * Move a run out of `from` and apply `patch` in one serialised step. The status
+ * check and the transition happen inside the same mutation, so of two
+ * simultaneous requests exactly one claims the run and the other is refused.
+ */
+export function claimRun(id: string, from: Run["status"], patch: (r: Run) => void): Promise<Run> {
+  return mutate((db) => {
+    const r = db.runs.find((x) => x.id === id);
+    if (!r) throw new Error(`Run ${id} not found`);
+    if (r.status !== from) throw new Error(`Run is not ${from.replace("_", " ")}`);
+    patch(r);
+    r.updatedAt = now();
+    return r;
+  });
+}
