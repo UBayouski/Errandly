@@ -1,5 +1,5 @@
 import { createSetupToken, hasPayPalCredentials } from "@/lib/paypal";
-import { getMandate, updateMandate } from "@/lib/store";
+import { connectBlockedReason, getMandate, updateMandate } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
   const mandate = await getMandate(id);
   if (!mandate) return Response.json({ error: "Not found" }, { status: 404 });
+  const blocked = connectBlockedReason(mandate);
+  if (blocked) return Response.json({ error: blocked }, { status: 409 });
   try {
     const { id: setupTokenId, approveUrl } = await createSetupToken(mandate, appUrl(req));
     await updateMandate(id, (m) => {

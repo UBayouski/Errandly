@@ -102,6 +102,8 @@ export type Run = {
   payment?: Payment;
   summary?: string;
   error?: string;
+  /** Set when the run was stopped by the time limit or found abandoned. */
+  interrupted?: boolean;
 };
 
 export type ProductCandidate = {

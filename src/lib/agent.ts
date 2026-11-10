@@ -4,7 +4,7 @@ import { channel3Enabled, searchProducts } from "./channel3";
 import { getModel, providerOptions } from "./model";
 import { chargeVault, paypalReadTools } from "./paypal";
 import { describePolicy, evaluate, formatMoney, spentInPeriod, categoryVerdict } from "./policy";
-import { claimRun, getMandate, getRun, listRuns, newId, now, saveMandate, saveRun, updateRun } from "./store";
+import { RUN_TIME_LIMIT_MS, claimRun, getMandate, getRun, listRuns, newId, now, recoverLatePayment, saveMandate, saveRun, stopRun, updateRun } from "./store";
 import type { Mandate, Policy, Proposal, Run, RunStep } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -81,6 +81,11 @@ export async function startRun(mandateId: string, task: string): Promise<Run> {
   // Fire and forget; the client polls GET /api/runs/:id.
   void executeRun(run.id).catch(async (err) => {
     console.error("[run]", run.id, err);
+    const name = err instanceof Error ? err.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      await stopRun(run.id, `Took longer than ${RUN_TIME_LIMIT_MS / 60_000} minutes and was stopped.`);
+      return;
+    }
     await updateRun(run.id, (r) => {
       r.status = "failed";
       r.error = err instanceof Error ? err.message : String(err);
@@ -146,6 +151,7 @@ async function executePurchase(runId: string, mandate: Mandate, proposal: Propos
         { url: proposal.offerUrl },
       ),
     );
+    recoverLatePayment(r);
   });
 }
 
@@ -332,6 +338,7 @@ Environment: PayPal ${process.env.PAYPAL_ENVIRONMENT?.toUpperCase() === "PRODUCT
     tools,
     stopWhen: stepCountIs(10),
     providerOptions,
+    abortSignal: AbortSignal.timeout(RUN_TIME_LIMIT_MS),
   });
 
   await updateRun(runId, (r) => {

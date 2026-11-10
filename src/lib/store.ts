@@ -81,7 +81,99 @@ export function updateMandate(id: string, patch: (m: Mandate) => void): Promise<
   });
 }
 
+/**
+ * PayPal can be connected only while a mandate is waiting for it. Revoking is final, and an
+ * active mandate keeps its one payment token, so both are refused.
+ * Returns null when connecting is allowed, otherwise the reason it is not.
+ */
+export function connectBlockedReason(m: Pick<Mandate, "status">): string | null {
+  switch (m.status) {
+    case "needs_paypal":
+      return null;
+    case "active":
+      return "This mandate is already connected to PayPal.";
+    case "revoked":
+      return "This mandate has been revoked. Create a new mandate to run more errands.";
+    case "expired":
+      return "This mandate has expired. Create a new mandate to run more errands.";
+    default:
+      return "This mandate cannot be connected.";
+  }
+}
+
+/**
+ * Store a PayPal vault result and activate the mandate, but only if it is still waiting for PayPal.
+ * The check and the write happen in one serialised step, so a revoke that lands while PayPal
+ * redirects back cannot be undone by the return.
+ */
+export function activateMandate(id: string, paypal: Partial<Mandate["paypal"]>): Promise<{ activated: boolean; mandate: Mandate }> {
+  return mutate((db) => {
+    const m = db.mandates.find((x) => x.id === id);
+    if (!m) throw new Error(`Mandate ${id} not found`);
+    if (connectBlockedReason(m)) return { activated: false, mandate: m };
+    m.paypal = { ...m.paypal, ...paypal };
+    m.status = "active";
+    return { activated: true, mandate: m };
+  });
+}
+
+/** The agent gets this long for one errand; past it, the run is stopped. Gemini has taken over 5 minutes on a single step, so keep this generous. */
+export const RUN_TIME_LIMIT_MS = 10 * 60_000;
+/** A run still "running" with no update for this long was abandoned (for example, a restart). */
+export const RUN_STALE_MS = 12 * 60_000;
+
+/**
+ * Close a run that was stopped early. A payment already recorded wins: the run is
+ * completed with its receipt. Otherwise it fails and says nothing was charged.
+ * Only touches runs still "running"; runs waiting for approval wait for a person.
+ */
+function settleInterrupted(r: Run, reason: string) {
+  if (r.status !== "running") return false;
+  r.interrupted = true;
+  if (r.payment) {
+    r.status = "completed";
+    r.summary ??= "Paid. The agent was stopped before it wrote its summary; the PayPal receipt is above.";
+    return true;
+  }
+  r.status = "failed";
+  r.error = reason;
+  r.steps.push({ at: now(), type: "error", title: "Stopped", detail: reason });
+  r.summary = `${reason} Nothing was charged.`;
+  return true;
+}
+
+export function stopRun(id: string, reason: string): Promise<Run> {
+  return mutate((db) => {
+    const r = db.runs.find((x) => x.id === id);
+    if (!r) throw new Error(`Run ${id} not found`);
+    settleInterrupted(r, reason);
+    r.updatedAt = now();
+    return r;
+  });
+}
+
+/** A payment that lands after the run was stopped still counts: show it as completed. */
+export function recoverLatePayment(r: Run) {
+  if (r.payment && r.status === "failed" && r.interrupted) {
+    r.status = "completed";
+    r.summary = "Paid. The agent was stopped before it wrote its summary; the PayPal receipt is above.";
+  }
+}
+
+/** Close abandoned runs. Cheap when there are none: the file is only written if one is found. */
+async function sweepStaleRuns(at = Date.now()) {
+  const db = await load();
+  const stale = (r: Run) => r.status === "running" && at - Date.parse(r.updatedAt) > RUN_STALE_MS;
+  if (!db.runs.some(stale)) return;
+  await mutate((d) => {
+    for (const r of d.runs) {
+      if (stale(r) && settleInterrupted(r, "This errand was interrupted before it finished.")) r.updatedAt = now();
+    }
+  });
+}
+
 export async function listRuns(mandateId?: string): Promise<Run[]> {
+  await sweepStaleRuns();
   const db = await load();
   return db.runs
     .filter((r) => !mandateId || r.mandateId === mandateId)
@@ -89,6 +181,7 @@ export async function listRuns(mandateId?: string): Promise<Run[]> {
 }
 
 export async function getRun(id: string): Promise<Run | undefined> {
+  await sweepStaleRuns();
   const db = await load();
   return db.runs.find((r) => r.id === id);
 }
