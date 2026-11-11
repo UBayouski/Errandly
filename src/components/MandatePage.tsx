@@ -308,7 +308,9 @@ export function MandatePage({ id, sandbox, modelLabel }: { id: string; sandbox: 
           <section className="card connection-card">
             <div className="section-kicker">Payment permission</div>
             <h2>PayPal wallet</h2>
-            {m.paypal.vaultId ? (
+            {m.status === "revoked" ? (
+                <p className="muted">This mandate is revoked and can no longer make purchases.</p>
+            ) : m.paypal.vaultId ? (
               <>
                 <p>
                   <span className="status-dot" aria-hidden /> Connected{m.paypal.payerEmail ? <> as <strong>{m.paypal.payerEmail}</strong></> : " to this mandate"}.
@@ -316,8 +318,6 @@ export function MandatePage({ id, sandbox, modelLabel }: { id: string; sandbox: 
                 <p className="small muted">Purchases within your automatic approval limit can be paid without another checkout. Revoke the mandate to remove its saved payment permission.</p>
                 <details className="connection-details"><summary>Connection details</summary><p className="small muted">Payment token <code>{m.paypal.vaultId}</code><br />Permission given {m.paypal.approvedAt?.slice(0, 10) || "previously"}.</p></details>
               </>
-            ) : m.status === "revoked" ? (
-                <p className="muted">This mandate is revoked and can no longer make purchases.</p>
             ) : (
               <>
                 <p className="muted">Not connected yet. Your spending rules are ready to review before you give PayPal permission.</p>
